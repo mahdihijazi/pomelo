@@ -1,0 +1,16 @@
+# Build output
+macos/build/
+*.o
+*.dSYM/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+xcuserdata/
