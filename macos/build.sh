@@ -30,5 +30,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 PLIST
+cp -R Resources/Sounds "$APP/Contents/Resources/Sounds"
 codesign --force --deep --sign - "$APP"
 echo "Built $APP"

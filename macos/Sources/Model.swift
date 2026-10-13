@@ -19,9 +19,31 @@ enum Mode: String, Codable, CaseIterable, Identifiable {
 
 enum Status: String, Codable { case idle, running, paused, overflow }
 enum Ambient: String, Codable, CaseIterable, Identifiable {
-    case off, brown, rain
+    case off, rain1, rain2, rain3, rain4, umbrella, fireplace, beach, jungle, file
     var id: String { rawValue }
-    var title: String { switch self { case .off: "Off"; case .brown: "Brown noise"; case .rain: "Soft rain" } }
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .rain1: "Rain recording 1"
+        case .rain2: "Rain recording 2"
+        case .rain3: "Rain recording 3"
+        case .rain4: "Rain recording 4"
+        case .umbrella: "Rain under an umbrella"
+        case .fireplace: "Fireplace"
+        case .beach: "Beach waves"
+        case .jungle: "Jungle"
+        case .file: "Custom audio file"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        if raw == "brown" || raw == "rain" { self = .off; return }  // removed generated sounds
+        guard let v = Ambient(rawValue: raw) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown ambient \(raw)"))
+        }
+        self = v
+    }
 }
 enum AppearancePref: String, Codable, CaseIterable, Identifiable {
     case system, light, dark
@@ -44,6 +66,7 @@ struct Prefs: Codable, Equatable {
     var focus = 25, short = 5, long = 15, every = 4, goal = 8
     var autoBreak = true, autoFocus = false, overflow = false, sound = true
     var ambient: Ambient = .off
+    var ambientFile: String?
     var appearance: AppearancePref = .system
     var menuBarCountdown = true
     var keepOnTop = false
@@ -109,7 +132,7 @@ final class TimerModel: ObservableObject {
     private(set) var endAt = Date.distantPast
     private var ticker: AnyCancellable?
     private var activity: NSObjectProtocol?
-    private let noise = NoisePlayer()
+    private let noise = AmbientPlayer()
     private var bannerTask: Task<Void, Never>?
 
     private init() {
@@ -271,7 +294,11 @@ final class TimerModel: ObservableObject {
         } else if !isActive, let a = activity {
             ProcessInfo.processInfo.endActivity(a); activity = nil
         }
-        if mode == .focus && isActive { noise.play(prefs.ambient) } else { noise.stop() }
+        if mode == .focus && isActive {
+            if !noise.play(prefs.ambient, file: prefs.ambientFile) {
+                flash("Could not play the audio file. Choose another file in Settings.")
+            }
+        } else { noise.stop() }
     }
 
     func ambientChanged() { sideEffects() }
@@ -354,44 +381,34 @@ final class TimerModel: ObservableObject {
     }()
 }
 
-// MARK: - Ambient noise
+// MARK: - Ambient audio
 
-final class NoisePlayer {
-    private var engine: AVAudioEngine?
+final class AmbientPlayer {
+    private var player: AVAudioPlayer?
     private var kind: Ambient = .off
+    private var path: String?
 
-    func play(_ k: Ambient) {
-        if k == kind, engine != nil { return }
+    /// Returns false when the sound could not be played.
+    func play(_ k: Ambient, file: String?) -> Bool {
+        if k == kind, path == file, player != nil { return true }
         stop()
-        guard k != .off else { return }
-        kind = k
-        let e = AVAudioEngine()
-        let sr = e.outputNode.inputFormat(forBus: 0).sampleRate
-        var last: Float = 0, lp: Float = 0, gain: Float = 0
-        let target: Float = k == .brown ? 0.9 : 0.35
-        let src = AVAudioSourceNode { _, _, frames, abl -> OSStatus in
-            let bufs = UnsafeMutableAudioBufferListPointer(abl)
-            for f in 0..<Int(frames) {
-                let w = Float.random(in: -1...1)
-                var v: Float
-                if k == .brown { last = (last + 0.02 * w) / 1.02; v = last * 3.5 }
-                else { lp += 0.25 * (w - lp); v = (w - lp * 1.4) * 0.5 }
-                gain += (target - gain) * 0.00002 // slow fade-in
-                v *= gain * 0.25
-                for b in bufs { b.mData?.assumingMemoryBound(to: Float.self)[f] = v }
-            }
-            return noErr
-        }
-        let fmt = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 1)
-        e.attach(src)
-        e.connect(src, to: e.mainMixerNode, format: fmt)
-        do { try e.start(); engine = e } catch { kind = .off }
+        guard k != .off else { return true }
+        let url: URL?
+        if k == .file { url = file.map { URL(fileURLWithPath: $0) } }
+        else { url = Bundle.main.url(forResource: k.rawValue, withExtension: "mp3", subdirectory: "Sounds") }
+        guard let url, let p = try? AVAudioPlayer(contentsOf: url) else { return false }
+        p.numberOfLoops = -1
+        p.volume = 0.5
+        guard p.play() else { return false }
+        player = p; kind = k; path = file
+        return true
     }
 
     func stop() {
-        engine?.stop()
-        engine = nil
+        player?.stop()
+        player = nil
         kind = .off
+        path = nil
     }
 }
 

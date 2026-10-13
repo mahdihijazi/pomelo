@@ -8,7 +8,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         c.delegate = self
         c.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         MainActor.assumeIsolated { TimerModel.shared.applyWindowPrefs() }
+        // Menu-bar-first: no Dock icon unless the main window is open.
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: .main) { n in
+            guard let w = n.object as? NSWindow, AppDelegate.isMain(w) else { return }
+            w.deminiaturize(nil); w.orderOut(nil)
+            NSApp.setActivationPolicy(.accessory)
+        }
+        nc.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { n in
+            guard let w = n.object as? NSWindow, AppDelegate.isMain(w) else { return }
+            NSApp.setActivationPolicy(.accessory)
+        }
+        DispatchQueue.main.async {
+            for w in NSApp.windows where AppDelegate.isMain(w) { w.orderOut(nil) }
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
+    static func isMain(_ w: NSWindow) -> Bool { w.identifier?.rawValue.hasPrefix("main") == true }
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,
                                 withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
         done([.banner])

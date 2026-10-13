@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import AVFoundation
+import UniformTypeIdentifiers
 
 // MARK: - Dial
 
@@ -479,9 +481,16 @@ struct MenuPanel: View {
                 Text(m.intent).font(.system(size: 12)).foregroundStyle(Palette.muted).lineLimit(1)
             }
             Controls(compact: true)
+            Picker("Sound", selection: $m.prefs.ambient) {
+                ForEach(Ambient.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.menu)
+            .font(.system(size: 12))
+            .onChange(of: m.prefs.ambient) { m.ambientChanged() }
             Divider()
             HStack {
                 Button("Open Pomelo") {
+                    NSApp.setActivationPolicy(.regular)
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }
@@ -554,6 +563,12 @@ struct SettingsView: View {
                 Picker("Ambient during focus", selection: $m.prefs.ambient) {
                     ForEach(Ambient.allCases) { Text($0.title).tag($0) }
                 }
+                if m.prefs.ambient == .file {
+                    LabeledContent("File", value: m.prefs.ambientFile.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "None selected")
+                    Button("Choose audio file") { chooseAudioFile() }
+                    Text("The file loops during focus and must remain in its chosen location.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Section("Appearance") {
                 Picker("Theme", selection: $m.prefs.appearance) {
@@ -575,5 +590,23 @@ struct SettingsView: View {
         .onChange(of: m.prefs.short) { m.prefsChangedDuration() }
         .onChange(of: m.prefs.long) { m.prefsChangedDuration() }
         .onChange(of: m.prefs.ambient) { m.ambientChanged() }
+        .onChange(of: m.prefs.ambientFile) { m.ambientChanged() }
+    }
+
+    private func chooseAudioFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if (try? AVAudioPlayer(contentsOf: url)) != nil {
+            m.prefs.ambientFile = url.path
+        } else {
+            let a = NSAlert()
+            a.messageText = "Cannot open audio file"
+            a.informativeText = "Pomelo could not open that file. Try a WAV, MP3, or M4A file."
+            a.runModal()
+        }
     }
 }
